@@ -1,0 +1,788 @@
+# app.py
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout
+from PySide6.QtGui import QFontDatabase
+from ui.components.listButtons import ListButtons
+from ui.components.tasksList import KanbanColumn
+from ui.components.title import AppTitle
+from utils.storage import global_storage
+import os
+
+class MainWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        # Главный layout
+        layout = QVBoxLayout()
+        layout.setSpacing(0)
+
+        # Корневые компоненты
+        self.title = AppTitle()
+        self.buttons = ListButtons()
+        self.column = KanbanColumn()
+        self.column.load_from_storage()
+
+        # Добавляем на лэйаут
+        layout.addWidget(self.title)
+        layout.addWidget(self.buttons)
+        layout.addWidget(self.column)
+
+        self.setLayout(layout)
+        self.setWindowTitle("Менеджер задач")
+
+app = QApplication([])
+window = MainWindow()
+
+# Загружаем шрифт
+QFontDatabase.addApplicationFont(os.path.join(global_storage.base_dir, "resources", "Mulish.ttf"))
+
+# Загружаем стиль
+with open(os.path.join(global_storage.base_dir, "styles", "global.qss"), "r") as f:
+    app.setStyleSheet(f.read())
+
+if __name__ == "__main__":
+    window.show()
+    window.resize(570, 680)
+    app.exec()
+
+# ui/components/taskItem.py
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSizePolicy
+from PySide6.QtSvg import QSvgRenderer
+from PySide6.QtGui import QPixmap, QPainter, QColor
+from .badge import Badge
+from .svgIcon import SvgIconWidget
+from utils.storage import global_storage
+
+# Элемент задачи для списка
+class TaskCardV2(QWidget):
+    def __init__(self, title, description, status, time = "", date = ""):
+        super().__init__()
+
+        # Создаём Layout
+        layout = QVBoxLayout()
+
+        # Создаём блок заголовка
+        header = QHBoxLayout()
+
+        # Добавляем в хидер заголовок
+        header_title = QLabel(title)
+        header_title.setStyleSheet("""
+            QLabel {
+                font-weight: 800;
+                font-size: 16pt;
+            }
+        """)
+        header.addWidget(header_title)
+
+        # Добавляем в хидер галочку
+        double_mark = QLabel()
+
+        # Загружаем SVG-иконку
+        svg_renderer = QSvgRenderer(f"{global_storage.base_dir}/resources/icons/check-check.svg")
+        pixmap = QPixmap(32, 32)
+        pixmap.fill(QColor(0, 0, 0, 0))
+        painter = QPainter(pixmap)
+        svg_renderer.render(painter)
+        painter.end()
+        double_mark.setPixmap(pixmap)
+
+        double_mark.setStyleSheet("""
+            QLabel {
+                color: rgb(200,200,200);
+                font-size: 32px;
+            }
+        """)
+        double_mark.setFixedSize(32, 32)
+        if status == "completed":
+            header.addWidget(double_mark)
+
+        # Создаём описание
+        description = QLabel(description)
+        description.setStyleSheet("""
+            QLabel {
+                font-size: 15pt;
+            }
+        """)
+
+        # Создаём список с отметками статуса
+        badges_list = QHBoxLayout()
+        badges_list.setSpacing(4)
+        if status == "completed":
+            badges_list.addWidget(Badge("Выполнена", "#919191", "#d2d2d2"))
+        if status == "created":
+            badges_list.addWidget(Badge("Ожидает", "#e3af2a", "#f5e1ad"))
+        if status == "overdue":
+            badges_list.addWidget(Badge("Просрочена", "#cf1d1d", "#caa0a0"))
+
+        badges_list.addStretch()
+
+        # Создаём layout для даты и времени
+        datetime_layout = QHBoxLayout()
+        datetime_layout.setSpacing(4)
+
+        # Создаём дату и время
+        if time:
+            time_icon = SvgIconWidget(f"{global_storage.base_dir}/resources/icons/clock.svg", 20, 20)
+
+            time_label = QLabel(time)
+            time_label.setStyleSheet("QLabel {font-size: 14px;}")
+            time_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+
+            datetime_layout.addWidget(time_icon)
+            datetime_layout.addWidget(time_label)
+
+        if date:
+            date_icon = SvgIconWidget(f"{global_storage.base_dir}/resources/icons/calendar.svg", 20, 20)
+
+            date_label = QLabel(date)
+            date_label.setStyleSheet("QLabel {font-size: 14px;}")
+
+            datetime_layout.addWidget(date_icon)
+            datetime_layout.addWidget(date_label)
+
+        # Добавляем header в layout
+        layout.addLayout(header)
+        layout.addWidget(description)
+        if date or time:
+            layout.addLayout(datetime_layout)
+        layout.addLayout(badges_list)
+        self.setStyleSheet("""
+                           QVBoxLayout:focus {
+                           background: red;
+                           }
+                           """)
+        self.setLayout(layout)
+
+
+# ui/components/__init__.py
+
+
+# ui/components/badge.py
+from PySide6.QtWidgets import QLabel
+from PySide6.QtCore import Qt
+
+# Цветной бейдж для отображения статусов задач
+class Badge(QLabel):
+    # Инит компонента
+    def __init__(self, text, text_color="#ffffff", bg_color="#3498db"):
+        super().__init__(text)
+        self.setAlignment(Qt.AlignCenter)
+        self.setStyle(text_color, bg_color)
+
+    # Устанавливает стили для бейджа
+    def setStyle(self, text_color, bg_color):
+        self.setStyleSheet(f'''
+            QLabel {{
+                color: {text_color};
+                background-color: {bg_color};
+                font-size: 14px;
+                font-weight: bold;
+                padding: 2px 8px;
+                border-radius: 4px;
+            }}
+        ''')
+
+
+# ui/components/tasksList.py
+from PySide6.QtGui import Qt, QIcon
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton, QDialog, QListWidgetItem
+from PySide6.QtCore import QSize
+from datetime import datetime
+
+from .taskItem import TaskCardV2
+from .taskCreateWindow import TaskCreateWindow
+from utils.storage import global_storage
+
+# Столбец списка задач
+class KanbanColumn(QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout()
+
+        # Загружаем данные из хранилища
+        global_storage.load_from_json()
+
+        # Список задач
+        self.task_list = QListWidget()
+
+        # Задаём фоновый цвет для нажатой задачи
+        self.task_list.setStyleSheet("""
+            QListWidget::item:selected {
+                background: rgba(109,137,132,0.5);
+            }""")        
+
+        # Кнопки
+        self.buttons_wrapper = QHBoxLayout()
+
+        # Иконка для кнопки добавления задачи
+        add_icon = QIcon(f"{global_storage.base_dir}/resources/icons/plus.svg")
+
+        # Кнопка добавления задач
+        add_button = QPushButton(add_icon, "Добавить задачу")
+        add_button.setCursor(Qt.PointingHandCursor)
+        add_button.clicked.connect(self.show_create_task_dialog)
+        add_button.setIconSize(QSize(21, 21))
+
+        # Добавляем кнопку в wrapper
+        self.buttons_wrapper.addWidget(add_button)
+
+        # Double click: Редактирование задачи
+        self.task_list.itemDoubleClicked.connect(self.on_task_double_clicked)
+
+        layout.addWidget(self.task_list)
+        layout.addLayout(self.buttons_wrapper)
+        self.setLayout(layout)
+
+    # Показать диалог создания задачиAdd commentMore actions
+    def show_create_task_dialog(self):
+        dialog = TaskCreateWindow(self)
+        if dialog.exec() == QDialog.Accepted:
+            # Получаем данные из диалога
+            task_data = dialog.get_task_data()
+
+            # Получаем slug для статуса
+            status = ""
+            match task_data['status']:
+                case "Ожидает":
+                    status = "created"
+                case "В процессе":
+                    status = "created"
+                case "Завершён":
+                    status = "completed"
+
+            # Сохраняем задачи
+            global_storage.todos.append({
+                'title': task_data['title'],
+                'description': task_data['description'],
+                'status': status,
+                'time': task_data['time'],
+                'date': task_data['date']
+            })
+            global_storage.save_to_json()
+
+            # Обновляем список задач
+            self.load_from_storage()
+
+    # Добавить задачу
+    def add_task(self, title, description, status, time = "", date = ""):
+        task_widget = TaskCardV2(title, description, status, time, date)
+        list_item = QListWidgetItem(self.task_list)
+
+        list_item.setSizeHint(task_widget.sizeHint())
+        self.task_list.addItem(list_item)
+        self.task_list.setItemWidget(list_item, task_widget)
+
+    # Очистить список
+    def clear_tasks(self):
+        self.task_list.clear()
+
+    # Загрузить задачи из файла
+    def load_from_storage(self):
+        self.clear_tasks()
+        for task in global_storage.todos:
+            self.check_overdue_status(task)
+            self.add_task(task['title'], task['description'], task['status'], task['time'] or "", task['date'] or "")
+        global_storage.save_to_json()  # Сохраняем обновленные статусы
+
+    # При двойном клике на задачу
+    def on_task_double_clicked(self, item):
+        self.edit_task(self.task_list.row(item))
+
+    # Открыть задачу для редактирования
+    def edit_task(self, task_index):
+        if task_index >= 0 and task_index < len(global_storage.todos):
+            task_data = global_storage.todos[task_index]
+            dialog = TaskCreateWindow(self, task_data)
+            
+            result = dialog.exec()
+            if result == QDialog.Accepted:
+                # Получаем обновлённые данные
+                updated_data = dialog.get_task_data()
+                
+                # Статус -> slug
+                status = ""
+                match updated_data['status']:
+                    case "Ожидает":
+                        status = "created"
+                    case "В процессе":    
+                        status = "created"
+                    case "Выполнена":    
+                        status = "completed"
+                
+                # Обновляем данные в хранилище
+                global_storage.todos[task_index].update({
+                    'title': updated_data['title'],
+                    'description': updated_data['description'],
+                    'status': status,
+                    'time': updated_data['time'],
+                    'date': updated_data['date']
+                })
+                global_storage.save_to_json()
+            elif result == -1:  # Проверяем на удаление
+                global_storage.todos.pop(task_index)
+                global_storage.save_to_json()
+                
+            # Перезагружаем список
+            self.load_from_storage()
+
+    # Проверка, что время на выполнение задачи ещё не истекло
+    def check_overdue_status(self, task):
+        if task['status'] != 'completed' and task['date'] and task['time']:
+            # Генерируем строку даты для сравнения
+            task_datetime_str = f"{task['date']} {task['time']}"
+            # Парсинг даты из строки по формату
+            task_datetime = datetime.strptime(task_datetime_str, "%d.%m.%Y %H:%M")
+            if task_datetime < datetime.now():
+                task['status'] = 'overdue'
+
+# ui/components/svgIcon.py
+from PySide6.QtWidgets import QLabel
+from PySide6.QtSvg import QSvgRenderer
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QPainter
+
+# Обёртка для рендеринга SVG-иконок
+class SvgIconWidget(QLabel):
+    def __init__(self, svg_file, width, height, parent=None):
+        super().__init__(parent)
+        self.svg_file = svg_file
+        self.setFixedSize(width, height)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        # Загрузка SVG
+        renderer = QSvgRenderer(self.svg_file)
+        # Фон
+        painter.fillRect(self.rect(), Qt.transparent)
+        # Рисуем SVG и окрашиваем его
+        renderer.render(painter, self.rect())
+
+# ui/components/taskCreateWindow.py
+from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
+    QLineEdit, QTextEdit, QComboBox, QDateTimeEdit, QPushButton, QMessageBox,
+    QCheckBox, QWidget)
+from PySide6.QtCore import QDateTime
+
+class TaskCreateWindow(QDialog):
+    # Инициализация компонента
+    def __init__(self, parent=None, task_data=None):
+        super().__init__(parent)
+        self.task_data = task_data
+        self.setWindowTitle("Редактирование задачи" if task_data else "Добавление задачи")
+        self.setModal(True)
+        self.create_ui()
+        
+        if self.task_data:
+            self.fill_form_data()
+
+    # Создать диалоговое окно
+    def create_ui(self):
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        # Поле для ввода названия задачи
+        title_layout = QHBoxLayout()
+        title_label = QLabel("Назовите задачу")
+        self.title_input = QLineEdit()
+        self.title_input.setMaxLength(100)
+        self.title_length_label = QLabel("0/100")
+        title_layout.addWidget(title_label)
+        title_layout.addWidget(self.title_input)
+        title_layout.addWidget(self.title_length_label)
+        layout.addLayout(title_layout)
+
+        # Проверка на вводимые символы в поле Название
+        self.title_input.textChanged.connect(self.update_title_length)
+
+        # Поле для ввода описания задачи
+        desc_layout = QVBoxLayout()
+        desc_label = QLabel("Дополнительная информация о задаче")
+        self.desc_input = QTextEdit()
+        self.desc_length_label = QLabel("0/500")
+        desc_layout.addWidget(desc_label)
+        desc_layout.addWidget(self.desc_input)
+        desc_layout.addWidget(self.desc_length_label)
+        layout.addLayout(desc_layout)
+
+        # Проверка на вводимые символы в поле Описание
+        self.desc_input.textChanged.connect(self.update_desc_length)
+
+        # Список возможных статусов
+        status_layout = QHBoxLayout()
+        status_label = QLabel("Статус задачи")
+        self.status_dropdown = QComboBox()
+        self.status_dropdown.addItems(["Ожидает", "В процессе", "Выполнена"])
+        status_layout.addWidget(status_label)
+        status_layout.addWidget(self.status_dropdown)
+        layout.addLayout(status_layout)
+
+        # Чекбокс для включения/выключения даты
+        self.use_datetime_checkbox = QCheckBox("Хочу указать дату и время")
+        self.use_datetime_checkbox.setChecked(True)
+        self.use_datetime_checkbox.stateChanged.connect(self.toggle_datetime)
+        layout.addWidget(self.use_datetime_checkbox)
+
+        # Поле для даты и времени
+        self.datetime_container = QWidget()
+        datetime_layout = QHBoxLayout(self.datetime_container)
+        datetime_label = QLabel("Крайний срок выполнения (дедлайн)")
+        self.datetime_input = QDateTimeEdit()
+        
+        # Устанавливаем дату по умолчанию (текущая + 1 день)
+        default_datetime = QDateTime.currentDateTime().addDays(1)
+        self.datetime_input.setDateTime(default_datetime)
+        self.datetime_input.setCalendarPopup(True)
+        
+        datetime_layout.addWidget(datetime_label)
+        datetime_layout.addWidget(self.datetime_input)
+        layout.addWidget(self.datetime_container)
+
+        # Кнопки
+        layout_btns = QVBoxLayout()
+        save_btn_text = "Добавить задачу"
+        if self.task_data:
+            save_btn_text = "Сохранить изменения"
+        
+        self.save_btn = QPushButton(save_btn_text)
+        layout_btns.addWidget(self.save_btn)
+
+        # Добавляем новые кнопки только для режима редактирования
+        if self.task_data:
+            self.complete_btn = QPushButton("Отметить как выполненное")
+            self.delete_btn = QPushButton("Удалить")
+            layout_btns.addWidget(self.complete_btn)
+            layout_btns.addWidget(self.delete_btn)
+
+            # Задаём стили для кнопок
+            self.complete_btn.setStyleSheet("""
+            QPushButton {
+                border-radius: 16px;
+                padding: 6px 12px;
+                background-color: #E1E0E0;
+                font-size: 18px;
+                color: black;
+            }
+            """)
+            
+            self.delete_btn.setStyleSheet("""
+            QPushButton {
+                border-radius: 16px;
+                padding: 6px 12px;
+                background-color: #E1E0E0;
+                font-size: 18px;
+                color: black;
+            }
+            """)
+            
+            # Обработчики кнопок
+            self.complete_btn.clicked.connect(self.mark_as_completed)
+            self.delete_btn.clicked.connect(self.delete_task)
+
+        layout.addLayout(layout_btns)
+
+        # Обработчик для кнопки сохранения
+        self.save_btn.clicked.connect(self.validate_fields)
+
+    # Обновить количество введённых символов в поле Название
+    def update_title_length(self):
+        length = len(self.title_input.text())
+        self.title_length_label.setText(f"{length}/100")
+        self.title_length_label.setStyleSheet("color: red;" if length == 100 else "color: black;")
+
+    # Обновить количество введённых символов в поле Описание
+    def update_desc_length(self):
+        text = self.desc_input.toPlainText()
+        if len(text) > 500:
+            # Обрезаем текст и обновляем поле
+            self.desc_input.blockSignals(True)
+            self.desc_input.setPlainText(text[:500])
+            self.desc_input.blockSignals(False)
+            self.desc_length_label.setText("500/500")
+            self.desc_length_label.setStyleSheet("color: red;")
+        else:
+            self.desc_length_label.setText(f"{len(text)}/500")
+            self.desc_length_label.setStyleSheet("color: red;" if len(text) == 500 else "color: black;")
+
+    # Показать/скрыть поле для даты и времени
+    def toggle_datetime(self, state):
+        self.datetime_container.setVisible(state)
+        
+    # Загрузить данные из задачи в форму
+    def fill_form_data(self):
+        # Обрезаем данные при загрузке, если необходимо
+        title = self.task_data['title'][:100]
+        self.title_input.setText(title)
+        
+        desc = self.task_data['description'][:500]
+        self.desc_input.setText(desc)
+        
+        # slug статуса -> Текст
+        status_text = "Ожидает"
+        if self.task_data['status'] == "created":
+            status_text = "В процессе"
+        elif self.task_data['status'] == "completed":
+            status_text = "Выполнена"
+        
+        # Ищем статус по индексу    
+        index = self.status_dropdown.findText(status_text)
+        if index >= 0:
+            self.status_dropdown.setCurrentIndex(index)
+            
+        # Загружаем дату и время если они есть
+        if self.task_data['date'] and self.task_data['time']:
+            datetime_str = f"{self.task_data['date']} {self.task_data['time']}"
+            datetime = QDateTime.fromString(datetime_str, "dd.MM.yyyy HH:mm")
+            self.datetime_input.setDateTime(datetime)
+            self.use_datetime_checkbox.setChecked(True)
+        else:
+            self.use_datetime_checkbox.setChecked(False)
+
+    # Получить данные формы
+    def get_task_data(self):
+        data = {
+            'title': self.title_input.text(),
+            'description': self.desc_input.toPlainText(),
+            'status': self.status_dropdown.currentText(),
+        }
+        
+        # Добавляем дату и время, только если включен чекбокс
+        if self.use_datetime_checkbox.isChecked():
+            data.update({
+                'date': self.datetime_input.dateTime().toString("dd.MM.yyyy"),
+                'time': self.datetime_input.dateTime().toString("HH:mm")
+            })
+        else:
+            data.update({
+                'date': "",
+                'time': ""
+            })
+            
+        return data
+
+    # Пометить задачу отмеченной
+    def mark_as_completed(self):
+        self.status_dropdown.setCurrentText("Выполнена")
+        self.accept()
+
+    # Удалить задачу
+    def delete_task(self):
+        self.done(-1)
+
+    # Проверка полей
+    def validate_fields(self):
+        errors = []
+        
+        # Проверка заголовка
+        if not self.title_input.text().strip():
+            errors.append("Название не может быть пустым")
+            
+        # Проверка даты только если включен чекбокс
+        if self.use_datetime_checkbox.isChecked():
+            selected_datetime = self.datetime_input.dateTime()
+            current_datetime = QDateTime.currentDateTime()
+            
+            if selected_datetime < current_datetime:
+                errors.append("Дата и время не могут быть в прошлом")
+            
+        # Если есть ошибки - показываем их
+        if errors:
+            error_message = QMessageBox()
+            error_message.setIcon(QMessageBox.Critical)
+            error_message.setWindowTitle("Ошибка валидации")
+            error_message.setText(f"Пожалуйста, исправьте следующие ошибки:\n\n{'\n'.join(errors)}")
+            error_message.exec()
+            return
+            
+        super().accept()
+
+# ui/components/listButtons.py
+from PySide6.QtGui import QIcon, Qt
+from PySide6.QtWidgets import QWidget, QSizePolicy, QHBoxLayout, QPushButton, QFileDialog
+from PySide6.QtCore import QSize
+
+from utils.storage import global_storage
+
+# Кнопки над списком задач
+class ListButtons(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+
+        # Создаём Layout
+        layout = QHBoxLayout()
+
+        # Иконка для кнопки экспорта
+        export_icon = QIcon(f"{global_storage.base_dir}/resources/icons/upload.svg")
+
+        # Создаём кнопку экспорта
+        self.export_btn = QPushButton(export_icon, "Экспорт")
+        self.export_btn.setCursor(Qt.PointingHandCursor)
+        self.export_btn.clicked.connect(self.export_tasks_dialog)
+        self.export_btn.setIconSize(QSize(28, 18))
+
+        # Иконка для кнопки импорта
+        import_icon = QIcon(f"{global_storage.base_dir}/resources/icons/download.svg")
+
+        # Создаём кнопку импорта
+        self.import_btn = QPushButton(import_icon, "Импорт")
+        self.import_btn.setCursor(Qt.PointingHandCursor)
+        self.import_btn.clicked.connect(self.import_tasks_dialog)
+        self.import_btn.setIconSize(QSize(28, 18))
+
+        # Добавляем заголовок в layout
+        layout.addWidget(self.export_btn)
+        layout.addWidget(self.import_btn)
+        self.setLayout(layout)
+
+    # Диалог экспорта задач
+    def export_tasks_dialog(self):
+        options = QFileDialog.Options()
+        file_name, _ = QFileDialog.getSaveFileName(self, "Экспорт задач", "todo.ics", "Файл ICalendar (*.ics)", options=options)
+        if file_name:
+            global_storage.export_to_ics(file_name)
+
+    # Диалог импорта задач
+    def import_tasks_dialog(self):
+        options = QFileDialog.Options()
+        file_name, _ = QFileDialog.getOpenFileName(self, "Импорт задач", "", "Файл ICalendar (*.ics)", options=options)
+        if file_name:
+            global_storage.import_from_ics(file_name)
+
+# ui/components/title.py
+from PySide6.QtGui import Qt
+from PySide6.QtWidgets import QVBoxLayout, QLabel, QWidget
+
+# Заголовок (лого) приложения
+class AppTitle(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        # Создаём Layout
+        layout = QVBoxLayout()
+
+        # Создаём заголовок
+        self.label = QLabel("Менеджер задач")
+        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setStyleSheet('''
+                                 QLabel {
+                                 font-size: 32px;
+                                 font-weight: normal;}
+                                 ''')
+
+        # Добавляем заголовок в layout
+        layout.addWidget(self.label)
+        self.setLayout(layout)
+
+
+# utils/storage.py
+import json, sys, os
+from datetime import datetime
+from datetime import datetime
+import uuid
+from icalendar import Calendar, Todo
+from PySide6.QtCore import QObject, Signal
+
+class Storage(QObject):
+    data_changed = Signal()  # Signal emitted when data changes
+
+    def __init__(self):
+        super().__init__()
+        self.todos = []
+        self.base_dir = ""
+
+        # Определяем путь к файлу в зависимости от того, запущен ли код как release-сборка
+        if getattr(sys, 'frozen', False):
+            # Если код запущен как .exe
+            self.base_dir = sys._MEIPASS
+        else:
+            # Используем текущую директорию
+            self.script_directory =  os.path.dirname(os.path.abspath(__file__))
+            self.base_dir = os.path.abspath(os.path.join(self.script_directory, ".."))
+
+    # Загрузить данные из JSON
+    def load_from_json(self, filename='storage.json'):
+        try:
+            with open(filename, 'r', encoding='utf-8') as file:
+                self.todos = json.load(file)
+        except FileNotFoundError:
+            print(f'Файл {filename} не найден')
+        except json.JSONDecodeError:
+            print(f'Ошибка при декодировании файла {filename}')
+
+    # Сохранить данные в JSON
+    def save_to_json(self, filename='storage.json'):
+        with open(filename, 'w', encoding='utf-8') as file:
+            json.dump(self.todos, file, indent=4)
+
+    # Экспортировать данные в ICS-файл
+    def export_to_ics(self, filename):
+        cal = Calendar()
+        cal.add('prodid', 'TodoApp')
+        cal.add('version', '1.0')
+
+        for todo in self.todos:
+            ics_todo = Todo()
+            ics_todo.add('uid', str(uuid.uuid4()))
+            ics_todo.add('dtstamp', datetime.now())
+            ics_todo.add('created', datetime.now())
+            ics_todo.add('summary', todo['title'])
+            ics_todo.add('description', todo.get('description', ''))
+
+            # Преобразование статуса
+            status_map = {'overdue': 'NEEDS-ACTION', 'completed': 'COMPLETED'}
+            ics_todo.add('status', status_map.get(todo['status'], 'NEEDS-ACTION'))
+
+            # Дата и время выполнения задачи
+            due_date = datetime.strptime(
+                f"{todo['date']} {todo['time']}",
+                "%d.%m.%Y %H:%M"
+            )
+            ics_todo.add('due', due_date)
+
+            cal.add_component(ics_todo)
+
+        with open(filename, 'wb') as f:
+            f.write(cal.to_ical())
+
+    # Импортировать данные из ICS-файла
+    def import_from_ics(self, filename):
+        with open(filename, 'rb') as f:
+            cal = Calendar.from_ical(f.read())
+            self.todos = []
+
+            for component in cal.walk():
+                if component.name == 'VTODO':
+                    # Извлечение данных
+                    title = component.get('summary', 'Без названия')
+                    description = component.get('description', '')
+                    status = str(component.get('status', 'NEEDS-ACTION'))
+                    due = component.get('due')
+
+                    # Определение даты и времени
+                    if due:
+                        dt = due.dt
+                    else:
+                        dt = component.get('dtstart').dt
+
+                    if isinstance(dt, datetime):
+                        date_str = dt.strftime("%d.%m.%Y")
+                        time_str = dt.strftime("%H:%M")
+                    else:
+                        date_str = dt.strftime("%d.%m.%Y")
+                        time_str = "00:00"
+
+                    # Преобразование статуса обратно
+                    status_map = {'NEEDS-ACTION': 'overdue', 'COMPLETED': 'completed'}
+                    internal_status = status_map.get(status, 'overdue')
+
+                    self.todos.append({
+                        'title': str(title),
+                        'description': str(description),
+                        'status': internal_status,
+                        'date': date_str,
+                        'time': time_str
+                    })
+            self.save_to_json()
+
+global_storage = Storage()
+
